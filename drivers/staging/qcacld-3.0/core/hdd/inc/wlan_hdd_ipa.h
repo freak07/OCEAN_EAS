@@ -174,18 +174,15 @@ static inline void hdd_ipa_uc_stat_query(hdd_context_t *hdd_ctx,
 {
 	*ipa_tx_diff = 0;
 	*ipa_rx_diff = 0;
-	return;
 }
 
 static inline void hdd_ipa_uc_stat_request(hdd_adapter_t *adapter,
 	uint8_t reason)
 {
-	return;
 }
 
 static inline void hdd_ipa_uc_rt_debug_host_dump(hdd_context_t *hdd_ctx)
 {
-	return;
 }
 
 static inline bool hdd_ipa_is_enabled(hdd_context_t *pHddCtx)
@@ -200,7 +197,6 @@ static inline bool hdd_ipa_uc_is_enabled(hdd_context_t *pHddCtx)
 
 static inline void hdd_ipa_dump_info(hdd_context_t *hdd_ctx)
 {
-	return;
 }
 
 static inline int hdd_ipa_uc_ssr_reinit(hdd_context_t *hdd_ctx)
@@ -214,7 +210,6 @@ static inline int hdd_ipa_uc_ssr_deinit(void)
 }
 static inline void hdd_ipa_uc_force_pipe_shutdown(hdd_context_t *hdd_ctx)
 {
-	return;
 }
 
 /**
@@ -246,7 +241,7 @@ static inline struct sk_buff *hdd_ipa_tx_packet_ipa(hdd_context_t *hdd_ctx,
  * Return: true - ipa hw present
  *         false - ipa hw not present
  */
-bool hdd_ipa_is_present(hdd_context_t *hdd_ctx)
+static inline bool hdd_ipa_is_present(hdd_context_t *hdd_ctx)
 {
 	return false;
 }
