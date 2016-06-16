@@ -5000,6 +5000,7 @@ static int sched_group_energy(struct energy_env *eenv)
 			} while (sg = sg->next, sg != sd->groups);
 		}
 next_cpu:
+		cpumask_clear_cpu(cpu, &visit_cpus);
 		continue;
 	}
 
