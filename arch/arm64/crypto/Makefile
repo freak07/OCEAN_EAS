@@ -37,5 +37,7 @@ obj-$(CONFIG_CRYPTO_CRC32_ARM64) += crc32-arm64.o
 
 ccflags-y := -O3
 
+ccflags-y := -O3
+
 $(obj)/aes-glue-%.o: $(src)/aes-glue.c FORCE
 	$(call if_changed_rule,cc_o_c)
