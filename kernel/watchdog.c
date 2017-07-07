@@ -13,7 +13,6 @@
 
 #include <linux/mm.h>
 #include <linux/cpu.h>
-#include <linux/device.h>
 #include <linux/nmi.h>
 #include <linux/init.h>
 #include <linux/module.h>
@@ -21,7 +20,6 @@
 #include <linux/smpboot.h>
 #include <linux/sched/rt.h>
 #include <linux/tick.h>
-#include <linux/workqueue.h>
 
 #include <asm/irq_regs.h>
 #include <linux/kvm_para.h>
@@ -96,7 +94,6 @@ static u64 __read_mostly sample_period;
 static DEFINE_PER_CPU(unsigned long, watchdog_touch_ts);
 static DEFINE_PER_CPU(struct task_struct *, softlockup_watchdog);
 static DEFINE_PER_CPU(struct hrtimer, watchdog_hrtimer);
-static DEFINE_PER_CPU(unsigned int, watchdog_en);
 static DEFINE_PER_CPU(bool, softlockup_touch_sync);
 static DEFINE_PER_CPU(bool, soft_watchdog_warn);
 static DEFINE_PER_CPU(unsigned long, hrtimer_interrupts);
@@ -106,11 +103,6 @@ static DEFINE_PER_CPU(struct task_struct *, softlockup_task_ptr_saved);
 static DEFINE_PER_CPU(bool, hard_watchdog_warn);
 static DEFINE_PER_CPU(bool, watchdog_nmi_touch);
 static DEFINE_PER_CPU(unsigned long, hrtimer_interrupts_saved);
-#endif
-#ifdef CONFIG_HARDLOCKUP_DETECTOR_OTHER_CPU
-static cpumask_t __read_mostly watchdog_cpus;
-#endif
-#ifdef CONFIG_HARDLOCKUP_DETECTOR_NMI
 static DEFINE_PER_CPU(struct perf_event *, watchdog_ev);
 #endif
 static unsigned long soft_lockup_nmi_warn;
@@ -122,9 +114,7 @@ static unsigned long soft_lockup_nmi_warn;
 #ifdef CONFIG_HARDLOCKUP_DETECTOR
 unsigned int __read_mostly hardlockup_panic =
 			CONFIG_BOOTPARAM_HARDLOCKUP_PANIC_VALUE;
-#ifdef CONFIG_HARDLOCKUP_DETECTOR_NMI
-static unsigned long __maybe_unused hardlockup_allcpu_dumped;
-#endif
+static unsigned long hardlockup_allcpu_dumped;
 /*
  * We may not want to enable hard lockup detection by default in all cases,
  * for example when running the kernel as a guest on a hypervisor. In these
@@ -235,27 +225,13 @@ static void __touch_watchdog(void)
 	__this_cpu_write(watchdog_touch_ts, get_timestamp());
 }
 
-/**
- * touch_softlockup_watchdog_sched - touch watchdog on scheduler stalls
- *
- * Call when the scheduler may have stalled for legitimate reasons
- * preventing the watchdog task from executing - e.g. the scheduler
- * entering idle state.  This should only be used for scheduler events.
- * Use touch_softlockup_watchdog() for everything else.
- */
-void touch_softlockup_watchdog_sched(void)
+void touch_softlockup_watchdog(void)
 {
 	/*
 	 * Preemption can be enabled.  It doesn't matter which CPU's timestamp
 	 * gets zeroed here, so use the raw_ operation.
 	 */
 	raw_cpu_write(watchdog_touch_ts, 0);
-}
-
-void touch_softlockup_watchdog(void)
-{
-	touch_softlockup_watchdog_sched();
-	wq_watchdog_touch(raw_smp_processor_id());
 }
 EXPORT_SYMBOL(touch_softlockup_watchdog);
 
@@ -270,7 +246,6 @@ void touch_all_softlockup_watchdogs(void)
 	 */
 	for_each_watchdog_cpu(cpu)
 		per_cpu(watchdog_touch_ts, cpu) = 0;
-	wq_watchdog_touch(-1);
 }
 
 #ifdef CONFIG_HARDLOCKUP_DETECTOR
@@ -296,7 +271,7 @@ void touch_softlockup_watchdog_sync(void)
 	__this_cpu_write(watchdog_touch_ts, 0);
 }
 
-#ifdef CONFIG_HARDLOCKUP_DETECTOR_NMI
+#ifdef CONFIG_HARDLOCKUP_DETECTOR
 /* watchdog detector functions */
 static bool is_hardlockup(void)
 {
@@ -308,76 +283,6 @@ static bool is_hardlockup(void)
 	__this_cpu_write(hrtimer_interrupts_saved, hrint);
 	return false;
 }
-#endif
-
-#ifdef CONFIG_HARDLOCKUP_DETECTOR_OTHER_CPU
-static unsigned int watchdog_next_cpu(unsigned int cpu)
-{
-	cpumask_t cpus = watchdog_cpus;
-	unsigned int next_cpu;
-
-	next_cpu = cpumask_next(cpu, &cpus);
-	if (next_cpu >= nr_cpu_ids)
-		next_cpu = cpumask_first(&cpus);
-
-	if (next_cpu == cpu)
-		return nr_cpu_ids;
-
-	return next_cpu;
-}
-
-static int is_hardlockup_other_cpu(unsigned int cpu)
-{
-	unsigned long hrint = per_cpu(hrtimer_interrupts, cpu);
-
-	if (per_cpu(hrtimer_interrupts_saved, cpu) == hrint)
-		return 1;
-
-	per_cpu(hrtimer_interrupts_saved, cpu) = hrint;
-	return 0;
-}
-
-static void watchdog_check_hardlockup_other_cpu(void)
-{
-	unsigned int next_cpu;
-
-	/*
-	 * Test for hardlockups every 3 samples.  The sample period is
-	 *  watchdog_thresh * 2 / 5, so 3 samples gets us back to slightly over
-	 *  watchdog_thresh (over by 20%).
-	 */
-	if (__this_cpu_read(hrtimer_interrupts) % 3 != 0)
-		return;
-
-	/* check for a hardlockup on the next cpu */
-	next_cpu = watchdog_next_cpu(smp_processor_id());
-	if (next_cpu >= nr_cpu_ids)
-		return;
-
-	smp_rmb();
-
-	if (per_cpu(watchdog_nmi_touch, next_cpu) == true) {
-		per_cpu(watchdog_nmi_touch, next_cpu) = false;
-		return;
-	}
-
-	if (is_hardlockup_other_cpu(next_cpu)) {
-		/* only warn once */
-		if (per_cpu(hard_watchdog_warn, next_cpu) == true)
-			return;
-
-		if (hardlockup_panic)
-			panic("Watchdog detected hard LOCKUP on cpu %u", next_cpu);
-		else
-			WARN(1, "Watchdog detected hard LOCKUP on cpu %u", next_cpu);
-
-		per_cpu(hard_watchdog_warn, next_cpu) = true;
-	} else {
-		per_cpu(hard_watchdog_warn, next_cpu) = false;
-	}
-}
-#else
-static inline void watchdog_check_hardlockup_other_cpu(void) { return; }
 #endif
 
 static int is_softlockup(unsigned long touch_ts)
@@ -392,7 +297,7 @@ static int is_softlockup(unsigned long touch_ts)
 	return 0;
 }
 
-#ifdef CONFIG_HARDLOCKUP_DETECTOR_NMI
+#ifdef CONFIG_HARDLOCKUP_DETECTOR
 
 static struct perf_event_attr wd_hw_attr = {
 	.type		= PERF_TYPE_HARDWARE,
@@ -455,7 +360,7 @@ static void watchdog_overflow_callback(struct perf_event *event,
 	__this_cpu_write(hard_watchdog_warn, false);
 	return;
 }
-#endif /* CONFIG_HARDLOCKUP_DETECTOR_NMI */
+#endif /* CONFIG_HARDLOCKUP_DETECTOR */
 
 static void watchdog_interrupt_count(void)
 {
@@ -478,9 +383,6 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 
 	/* kick the hardlockup detector */
 	watchdog_interrupt_count();
-
-	/* test for hardlockups on the next cpu */
-	watchdog_check_hardlockup_other_cpu();
 
 	/* kick the softlockup detector */
 	wake_up_process(__this_cpu_read(softlockup_watchdog));
@@ -588,13 +490,9 @@ static void watchdog_set_prio(unsigned int policy, unsigned int prio)
 	sched_setscheduler(current, policy, &param);
 }
 
-void watchdog_enable(unsigned int cpu)
+static void watchdog_enable(unsigned int cpu)
 {
 	struct hrtimer *hrtimer = raw_cpu_ptr(&watchdog_hrtimer);
-	unsigned int *enabled = raw_cpu_ptr(&watchdog_en);
-
-	if (*enabled)
-		return;
 
 	/* kick off the timer for the hardlockup detector */
 	hrtimer_init(hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
@@ -610,40 +508,16 @@ void watchdog_enable(unsigned int cpu)
 	/* initialize timestamp */
 	watchdog_set_prio(SCHED_FIFO, MAX_RT_PRIO - 1);
 	__touch_watchdog();
-
-	/*
-	 * Need to ensure above operations are observed by other CPUs before
-	 * indicating that timer is enabled. This is to synchronize core
-	 * isolation and hotplug. Core isolation will wait for this flag to be
-	 * set.
-	 */
-	mb();
-	*enabled = 1;
 }
 
-void watchdog_disable(unsigned int cpu)
+static void watchdog_disable(unsigned int cpu)
 {
 	struct hrtimer *hrtimer = raw_cpu_ptr(&watchdog_hrtimer);
-	unsigned int *enabled = raw_cpu_ptr(&watchdog_en);
-
-	if (!*enabled)
-		return;
 
 	watchdog_set_prio(SCHED_NORMAL, 0);
 	hrtimer_cancel(hrtimer);
 	/* disable the perf event */
 	watchdog_nmi_disable(cpu);
-
-	/*
-	 * No need for barrier here since disabling the watchdog is
-	 * synchronized with hotplug lock
-	 */
-	*enabled = 0;
-}
-
-bool watchdog_configured(unsigned int cpu)
-{
-	return *per_cpu_ptr(&watchdog_en, cpu);
 }
 
 static void watchdog_cleanup(unsigned int cpu, bool online)
@@ -687,7 +561,7 @@ static void watchdog(unsigned int cpu)
 		watchdog_nmi_disable(cpu);
 }
 
-#ifdef CONFIG_HARDLOCKUP_DETECTOR_NMI
+#ifdef CONFIG_HARDLOCKUP_DETECTOR
 /*
  * People like the simple clean cpu node info on boot.
  * Reduce the watchdog noise by only printing messages
@@ -786,44 +660,9 @@ static void watchdog_nmi_disable(unsigned int cpu)
 }
 
 #else
-#ifdef CONFIG_HARDLOCKUP_DETECTOR_OTHER_CPU
-static int watchdog_nmi_enable(unsigned int cpu)
-{
-	/*
-	 * The new cpu will be marked online before the first hrtimer interrupt
-	 * runs on it.  If another cpu tests for a hardlockup on the new cpu
-	 * before it has run its first hrtimer, it will get a false positive.
-	 * Touch the watchdog on the new cpu to delay the first check for at
-	 * least 3 sampling periods to guarantee one hrtimer has run on the new
-	 * cpu.
-	 */
-	per_cpu(watchdog_nmi_touch, cpu) = true;
-	smp_wmb();
-	cpumask_set_cpu(cpu, &watchdog_cpus);
-	return 0;
-}
-
-static void watchdog_nmi_disable(unsigned int cpu)
-{
-	unsigned int next_cpu = watchdog_next_cpu(cpu);
-
-	/*
-	 * Offlining this cpu will cause the cpu before this one to start
-	 * checking the one after this one.  If this cpu just finished checking
-	 * the next cpu and updating hrtimer_interrupts_saved, and then the
-	 * previous cpu checks it within one sample period, it will trigger a
-	 * false positive.  Touch the watchdog on the next cpu to prevent it.
-	 */
-	if (next_cpu < nr_cpu_ids)
-		per_cpu(watchdog_nmi_touch, next_cpu) = true;
-	smp_wmb();
-	cpumask_clear_cpu(cpu, &watchdog_cpus);
-}
-#else
 static int watchdog_nmi_enable(unsigned int cpu) { return 0; }
 static void watchdog_nmi_disable(unsigned int cpu) { return; }
-#endif /* CONFIG_HARDLOCKUP_DETECTOR_OTHER_CPU */
-#endif /* CONFIG_HARDLOCKUP_DETECTOR_NMI */
+#endif /* CONFIG_HARDLOCKUP_DETECTOR */
 
 static struct smp_hotplug_thread watchdog_threads = {
 	.store			= &softlockup_watchdog,
@@ -1068,9 +907,6 @@ static int proc_watchdog_common(int which, struct ctl_table *table, int write,
 		 * both lockup detectors are disabled if proc_watchdog_update()
 		 * returns an error.
 		 */
-		if (old == new)
-			goto out;
-
 		err = proc_watchdog_update();
 	}
 out:
@@ -1115,7 +951,7 @@ int proc_soft_watchdog(struct ctl_table *table, int write,
 int proc_watchdog_thresh(struct ctl_table *table, int write,
 			 void __user *buffer, size_t *lenp, loff_t *ppos)
 {
-	int err, old, new;
+	int err, old;
 
 	get_online_cpus();
 	mutex_lock(&watchdog_proc_mutex);
@@ -1135,10 +971,6 @@ int proc_watchdog_thresh(struct ctl_table *table, int write,
 	/*
 	 * Update the sample period. Restore on failure.
 	 */
-	new = ACCESS_ONCE(watchdog_thresh);
-	if (old == new)
-		goto out;
-
 	set_sample_period();
 	err = proc_watchdog_update();
 	if (err) {

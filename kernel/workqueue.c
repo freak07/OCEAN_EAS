@@ -48,8 +48,6 @@
 #include <linux/nodemask.h>
 #include <linux/moduleparam.h>
 #include <linux/uaccess.h>
-#include <linux/bug.h>
-#include <linux/delay.h>
 
 #include "workqueue_internal.h"
 
@@ -149,8 +147,6 @@ struct worker_pool {
 	int			node;		/* I: the associated node ID */
 	int			id;		/* I: pool ID */
 	unsigned int		flags;		/* X: flags */
-
-	unsigned long		watchdog_ts;	/* L: watchdog timestamp */
 
 	struct list_head	worklist;	/* L: list of pending works */
 	int			nr_workers;	/* L: total number of workers */
@@ -572,16 +568,6 @@ static struct pool_workqueue *unbound_pwq_by_node(struct workqueue_struct *wq,
 						  int node)
 {
 	assert_rcu_or_wq_mutex_or_pool_mutex(wq);
-
-	/*
-	 * XXX: @node can be NUMA_NO_NODE if CPU goes offline while a
-	 * delayed item is pending.  The plan is to keep CPU -> NODE
-	 * mapping valid and stable across CPU on/offlines.  Once that
-	 * happens, this workaround can be removed.
-	 */
-	if (unlikely(node == NUMA_NO_NODE))
-		return wq->dfl_pwq;
-
 	return rcu_dereference_raw(wq->numa_pwq_tbl[node]);
 }
 
@@ -653,35 +639,6 @@ static void set_work_pool_and_clear_pending(struct work_struct *work,
 	 */
 	smp_wmb();
 	set_work_data(work, (unsigned long)pool_id << WORK_OFFQ_POOL_SHIFT, 0);
-	/*
-	 * The following mb guarantees that previous clear of a PENDING bit
-	 * will not be reordered with any speculative LOADS or STORES from
-	 * work->current_func, which is executed afterwards.  This possible
-	 * reordering can lead to a missed execution on attempt to qeueue
-	 * the same @work.  E.g. consider this case:
-	 *
-	 *   CPU#0                         CPU#1
-	 *   ----------------------------  --------------------------------
-	 *
-	 * 1  STORE event_indicated
-	 * 2  queue_work_on() {
-	 * 3    test_and_set_bit(PENDING)
-	 * 4 }                             set_..._and_clear_pending() {
-	 * 5                                 set_work_data() # clear bit
-	 * 6                                 smp_mb()
-	 * 7                               work->current_func() {
-	 * 8				      LOAD event_indicated
-	 *				   }
-	 *
-	 * Without an explicit full barrier speculative LOAD on line 8 can
-	 * be executed before CPU#0 does STORE on line 1.  If that happens,
-	 * CPU#0 observes the PENDING bit is still set and new execution of
-	 * a @work is not queued in a hope, that CPU#1 will eventually
-	 * finish the queued @work.  Meanwhile CPU#1 does not see
-	 * event_indicated is set, because speculative LOAD was executed
-	 * before actual STORE.
-	 */
-	smp_mb();
 }
 
 static void clear_work_data(struct work_struct *work)
@@ -1126,8 +1083,6 @@ static void pwq_activate_delayed_work(struct work_struct *work)
 	struct pool_workqueue *pwq = get_work_pwq(work);
 
 	trace_workqueue_activate_work(work);
-	if (list_empty(&pwq->pool->worklist))
-		pwq->pool->watchdog_ts = jiffies;
 	move_linked_works(work, &pwq->pool->worklist, NULL);
 	__clear_bit(WORK_STRUCT_DELAYED_BIT, work_data_bits(work));
 	pwq->nr_active++;
@@ -1286,12 +1241,6 @@ fail:
 	if (work_is_canceling(work))
 		return -ENOENT;
 	cpu_relax();
-	/*
-	 * The queueing is in progress in another context. If we keep
-	 * taking the pool->lock in a busy loop, the other context may
-	 * never get the lock. Give 1 usec delay to avoid this contention.
-	 */
-	udelay(1);
 	return -EAGAIN;
 }
 
@@ -1436,8 +1385,6 @@ retry:
 		trace_workqueue_activate_work(work);
 		pwq->nr_active++;
 		worklist = &pwq->pool->worklist;
-		if (list_empty(worklist))
-			pwq->pool->watchdog_ts = jiffies;
 	} else {
 		work_flags |= WORK_STRUCT_DELAYED;
 		worklist = &pwq->delayed_works;
@@ -1511,13 +1458,13 @@ static void __queue_delayed_work(int cpu, struct workqueue_struct *wq,
 	timer_stats_timer_set_start_info(&dwork->timer);
 
 	dwork->wq = wq;
+	/* timer isn't guaranteed to run in this cpu, record earlier */
+	if (cpu == WORK_CPU_UNBOUND)
+		cpu = raw_smp_processor_id();
 	dwork->cpu = cpu;
 	timer->expires = jiffies + delay;
 
-	if (unlikely(cpu != WORK_CPU_UNBOUND))
-		add_timer_on(timer, cpu);
-	else
-		add_timer(timer);
+	add_timer_on(timer, cpu);
 }
 
 /**
@@ -2095,7 +2042,6 @@ __acquires(&pool->lock)
 		       current->comm, preempt_count(), task_pid_nr(current),
 		       worker->current_func);
 		debug_show_held_locks(current);
-		BUG_ON(PANIC_CORRUPTION);
 		dump_stack();
 	}
 
@@ -2211,8 +2157,6 @@ recheck:
 			list_first_entry(&pool->worklist,
 					 struct work_struct, entry);
 
-		pool->watchdog_ts = jiffies;
-
 		if (likely(!(*work_data_bits(work) & WORK_STRUCT_LINKED))) {
 			/* optimization path, not strictly necessary */
 			process_one_work(worker, work);
@@ -2296,7 +2240,6 @@ repeat:
 					struct pool_workqueue, mayday_node);
 		struct worker_pool *pool = pwq->pool;
 		struct work_struct *work, *n;
-		bool first = true;
 
 		__set_current_state(TASK_RUNNING);
 		list_del_init(&pwq->mayday_node);
@@ -2313,14 +2256,9 @@ repeat:
 		 * process'em.
 		 */
 		WARN_ON_ONCE(!list_empty(scheduled));
-		list_for_each_entry_safe(work, n, &pool->worklist, entry) {
-			if (get_work_pwq(work) == pwq) {
-				if (first)
-					pool->watchdog_ts = jiffies;
+		list_for_each_entry_safe(work, n, &pool->worklist, entry)
+			if (get_work_pwq(work) == pwq)
 				move_linked_works(work, scheduled, &n);
-			}
-			first = false;
-		}
 
 		if (!list_empty(scheduled)) {
 			process_scheduled_works(rescuer);
@@ -3131,7 +3069,6 @@ static int init_worker_pool(struct worker_pool *pool)
 	pool->cpu = -1;
 	pool->node = NUMA_NO_NODE;
 	pool->flags |= POOL_DISASSOCIATED;
-	pool->watchdog_ts = jiffies;
 	INIT_LIST_HEAD(&pool->worklist);
 	INIT_LIST_HEAD(&pool->idle_list);
 	hash_init(pool->busy_hash);
@@ -4371,9 +4308,7 @@ void show_workqueue_state(void)
 
 		pr_info("pool %d:", pool->id);
 		pr_cont_pool_info(pool);
-		pr_cont(" hung=%us workers=%d",
-			jiffies_to_msecs(jiffies - pool->watchdog_ts) / 1000,
-			pool->nr_workers);
+		pr_cont(" workers=%d", pool->nr_workers);
 		if (pool->manager)
 			pr_cont(" manager: %d",
 				task_pid_nr(pool->manager->task));
@@ -4483,17 +4418,6 @@ static void rebind_workers(struct worker_pool *pool)
 						  pool->attrs->cpumask) < 0);
 
 	spin_lock_irq(&pool->lock);
-
-	/*
-	 * XXX: CPU hotplug notifiers are weird and can call DOWN_FAILED
-	 * w/o preceding DOWN_PREPARE.  Work around it.  CPU hotplug is
-	 * being reworked and this can go away in time.
-	 */
-	if (!(pool->flags & POOL_DISASSOCIATED)) {
-		spin_unlock_irq(&pool->lock);
-		return;
-	}
-
 	pool->flags &= ~POOL_DISASSOCIATED;
 
 	for_each_pool_worker(worker, pool) {
@@ -5243,155 +5167,6 @@ static void workqueue_sysfs_unregister(struct workqueue_struct *wq)
 static void workqueue_sysfs_unregister(struct workqueue_struct *wq)	{ }
 #endif	/* CONFIG_SYSFS */
 
-/*
- * Workqueue watchdog.
- *
- * Stall may be caused by various bugs - missing WQ_MEM_RECLAIM, illegal
- * flush dependency, a concurrency managed work item which stays RUNNING
- * indefinitely.  Workqueue stalls can be very difficult to debug as the
- * usual warning mechanisms don't trigger and internal workqueue state is
- * largely opaque.
- *
- * Workqueue watchdog monitors all worker pools periodically and dumps
- * state if some pools failed to make forward progress for a while where
- * forward progress is defined as the first item on ->worklist changing.
- *
- * This mechanism is controlled through the kernel parameter
- * "workqueue.watchdog_thresh" which can be updated at runtime through the
- * corresponding sysfs parameter file.
- */
-#ifdef CONFIG_WQ_WATCHDOG
-
-static void wq_watchdog_timer_fn(unsigned long data);
-
-static unsigned long wq_watchdog_thresh = 30;
-static struct timer_list wq_watchdog_timer =
-	TIMER_DEFERRED_INITIALIZER(wq_watchdog_timer_fn, 0, 0);
-
-static unsigned long wq_watchdog_touched = INITIAL_JIFFIES;
-static DEFINE_PER_CPU(unsigned long, wq_watchdog_touched_cpu) = INITIAL_JIFFIES;
-
-static void wq_watchdog_reset_touched(void)
-{
-	int cpu;
-
-	wq_watchdog_touched = jiffies;
-	for_each_possible_cpu(cpu)
-		per_cpu(wq_watchdog_touched_cpu, cpu) = jiffies;
-}
-
-static void wq_watchdog_timer_fn(unsigned long data)
-{
-	unsigned long thresh = READ_ONCE(wq_watchdog_thresh) * HZ;
-	bool lockup_detected = false;
-	struct worker_pool *pool;
-	int pi;
-
-	if (!thresh)
-		return;
-
-	rcu_read_lock();
-
-	for_each_pool(pool, pi) {
-		unsigned long pool_ts, touched, ts;
-
-		if (list_empty(&pool->worklist))
-			continue;
-
-		/* get the latest of pool and touched timestamps */
-		pool_ts = READ_ONCE(pool->watchdog_ts);
-		touched = READ_ONCE(wq_watchdog_touched);
-
-		if (time_after(pool_ts, touched))
-			ts = pool_ts;
-		else
-			ts = touched;
-
-		if (pool->cpu >= 0) {
-			unsigned long cpu_touched =
-				READ_ONCE(per_cpu(wq_watchdog_touched_cpu,
-						  pool->cpu));
-			if (time_after(cpu_touched, ts))
-				ts = cpu_touched;
-		}
-
-		/* did we stall? */
-		if (time_after(jiffies, ts + thresh)) {
-			lockup_detected = true;
-			pr_emerg("BUG: workqueue lockup - pool");
-			pr_cont_pool_info(pool);
-			pr_cont(" stuck for %us!\n",
-				jiffies_to_msecs(jiffies - pool_ts) / 1000);
-			BUG();
-		}
-	}
-
-	rcu_read_unlock();
-
-	if (lockup_detected)
-		show_workqueue_state();
-
-	wq_watchdog_reset_touched();
-	mod_timer(&wq_watchdog_timer, jiffies + thresh);
-}
-
-void wq_watchdog_touch(int cpu)
-{
-	if (cpu >= 0)
-		per_cpu(wq_watchdog_touched_cpu, cpu) = jiffies;
-	else
-		wq_watchdog_touched = jiffies;
-}
-
-static void wq_watchdog_set_thresh(unsigned long thresh)
-{
-	wq_watchdog_thresh = 0;
-	del_timer_sync(&wq_watchdog_timer);
-
-	if (thresh) {
-		wq_watchdog_thresh = thresh;
-		wq_watchdog_reset_touched();
-		mod_timer(&wq_watchdog_timer, jiffies + thresh * HZ);
-	}
-}
-
-static int wq_watchdog_param_set_thresh(const char *val,
-					const struct kernel_param *kp)
-{
-	unsigned long thresh;
-	int ret;
-
-	ret = kstrtoul(val, 0, &thresh);
-	if (ret)
-		return ret;
-
-	if (system_wq)
-		wq_watchdog_set_thresh(thresh);
-	else
-		wq_watchdog_thresh = thresh;
-
-	return 0;
-}
-
-static const struct kernel_param_ops wq_watchdog_thresh_ops = {
-	.set	= wq_watchdog_param_set_thresh,
-	.get	= param_get_ulong,
-};
-
-module_param_cb(watchdog_thresh, &wq_watchdog_thresh_ops, &wq_watchdog_thresh,
-		0644);
-
-static void wq_watchdog_init(void)
-{
-	wq_watchdog_set_thresh(wq_watchdog_thresh);
-}
-
-#else	/* CONFIG_WQ_WATCHDOG */
-
-static inline void wq_watchdog_init(void) { }
-
-#endif	/* CONFIG_WQ_WATCHDOG */
-
 static void __init wq_numa_init(void)
 {
 	cpumask_var_t *tbl;
@@ -5433,34 +5208,6 @@ static void __init wq_numa_init(void)
 	wq_numa_possible_cpumask = tbl;
 	wq_numa_enabled = true;
 }
-
-#if defined(CONFIG_HTC_DEBUG_WORKQUEUE)
-
-#define for_each_cpu_worker_pool_pri(pool, cpu, pri)			\
-	for ((pool) = &per_cpu(cpu_worker_pools, cpu)[0], pri = 0;		\
-	     (pool) < &per_cpu(cpu_worker_pools, cpu)[NR_STD_WORKER_POOLS]; \
-	     (pool)++, pri++)
-
-void workqueue_show_pending_work(void)
-{
-	unsigned int cpu;
-	struct worker_pool *pool;
-	struct work_struct *work;
-	bool highpri;
-	const char *pri;
-
-	for_each_online_cpu(cpu) {
-		for_each_cpu_worker_pool_pri(pool, cpu, highpri) {
-			pri = (highpri > 0) ? "(H)" : "";
-
-			list_for_each_entry(work, &pool->worklist, entry) {
-				printk("CPU%d pending work %s: %pf\n", cpu, pri, work->func);
-			}
-		}
-	}
-}
-
-#endif /* CONFIG_HTC_DEBUG_WORKQUEUE */
 
 static int __init init_workqueues(void)
 {
@@ -5543,9 +5290,6 @@ static int __init init_workqueues(void)
 	       !system_unbound_wq || !system_freezable_wq ||
 	       !system_power_efficient_wq ||
 	       !system_freezable_power_efficient_wq);
-
-	wq_watchdog_init();
-
 	return 0;
 }
 early_initcall(init_workqueues);

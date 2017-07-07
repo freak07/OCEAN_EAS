@@ -111,7 +111,7 @@ EXPORT_SYMBOL(memunmap);
 
 static void devm_memremap_release(struct device *dev, void *res)
 {
-	memunmap(*(void **)res);
+	memunmap(res);
 }
 
 static int devm_memremap_match(struct device *dev, void *res, void *match_data)
@@ -133,10 +133,8 @@ void *devm_memremap(struct device *dev, resource_size_t offset,
 	if (addr) {
 		*ptr = addr;
 		devres_add(dev, ptr);
-	} else {
+	} else
 		devres_free(ptr);
-		return ERR_PTR(-ENXIO);
-	}
 
 	return addr;
 }
