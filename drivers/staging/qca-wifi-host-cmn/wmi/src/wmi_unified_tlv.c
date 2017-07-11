@@ -1820,6 +1820,7 @@ QDF_STATUS send_mgmt_cmd_tlv(wmi_unified_t wmi_handle,
 	uint64_t dma_addr;
 	void *qdf_ctx = param->qdf_ctx;
 	uint8_t *bufp;
+	QDF_STATUS status;
 	int32_t bufp_len = (param->frm_len < mgmt_tx_dl_frm_len) ? param->frm_len :
 		mgmt_tx_dl_frm_len;
 
@@ -1848,7 +1849,14 @@ QDF_STATUS send_mgmt_cmd_tlv(wmi_unified_t wmi_handle,
 							    sizeof(uint32_t)));
 	bufp += WMI_TLV_HDR_SIZE;
 	qdf_mem_copy(bufp, param->pdata, bufp_len);
-	qdf_nbuf_map_single(qdf_ctx, param->tx_frame, QDF_DMA_TO_DEVICE);
+
+	status = qdf_nbuf_map_single(qdf_ctx, param->tx_frame,
+				     QDF_DMA_TO_DEVICE);
+	if (status != QDF_STATUS_SUCCESS) {
+		WMI_LOGE("%s: wmi buf map failed", __func__);
+		goto err1;
+	}
+
 	dma_addr = qdf_nbuf_get_frag_paddr(param->tx_frame, 0);
 	cmd->paddr_lo = (uint32_t)(dma_addr & 0xffffffff);
 #if defined(HTT_PADDR64)
@@ -6547,6 +6555,51 @@ QDF_STATUS send_get_stats_cmd_tlv(wmi_unified_t wmi_handle,
 }
 
 /**
+ * send_congestion_cmd_tlv() - send request to fw to get CCA
+ * @wmi_handle: wmi handle
+ * @vdev_id: vdev id
+ *
+ * Return: CDF status
+ */
+QDF_STATUS send_congestion_cmd_tlv(wmi_unified_t wmi_handle,
+			A_UINT8 vdev_id)
+{
+	wmi_buf_t buf;
+	wmi_request_stats_cmd_fixed_param *cmd;
+	uint8_t len;
+	uint8_t *buf_ptr;
+
+	len = sizeof(*cmd);
+	buf = wmi_buf_alloc(wmi_handle, len);
+	if (!buf) {
+		WMI_LOGE("%s: Failed to allocate wmi buffer", __func__);
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	buf_ptr = wmi_buf_data(buf);
+	cmd = (wmi_request_stats_cmd_fixed_param *)buf_ptr;
+	WMITLV_SET_HDR(&cmd->tlv_header,
+		       WMITLV_TAG_STRUC_wmi_request_stats_cmd_fixed_param,
+		       WMITLV_GET_STRUCT_TLVLEN
+			       (wmi_request_stats_cmd_fixed_param));
+
+	cmd->stats_id = WMI_REQUEST_CONGESTION_STAT;
+	cmd->vdev_id = vdev_id;
+	WMI_LOGD("STATS REQ VDEV_ID:%d stats_id %d -->",
+			cmd->vdev_id, cmd->stats_id);
+
+	if (wmi_unified_cmd_send(wmi_handle, buf, len,
+				 WMI_REQUEST_STATS_CMDID)) {
+		WMI_LOGE("%s: Failed to send WMI_REQUEST_STATS_CMDID",
+			 __func__);
+		wmi_buf_free(buf);
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
+
+/**
  * send_snr_request_cmd_tlv() - send request to fw to get RSSI stats
  * @wmi_handle: wmi handle
  * @rssi_req: get RSSI request
@@ -7619,7 +7672,7 @@ wmi_send_failed:
  */
 QDF_STATUS send_add_wow_wakeup_event_cmd_tlv(wmi_unified_t wmi_handle,
 					uint32_t vdev_id,
-					uint32_t bitmap,
+					uint32_t *bitmap,
 					bool enable)
 {
 	WMI_WOW_ADD_DEL_EVT_CMD_fixed_param *cmd;
@@ -7640,7 +7693,12 @@ QDF_STATUS send_add_wow_wakeup_event_cmd_tlv(wmi_unified_t wmi_handle,
 			       (WMI_WOW_ADD_DEL_EVT_CMD_fixed_param));
 	cmd->vdev_id = vdev_id;
 	cmd->is_add = enable;
-	cmd->event_bitmap = bitmap;
+	qdf_mem_copy(&(cmd->event_bitmaps[0]), bitmap, sizeof(uint32_t) *
+		     WMI_WOW_MAX_EVENT_BM_LEN);
+
+	WMI_LOGD("Wakeup pattern 0x%x%x%x%x %s in fw", cmd->event_bitmaps[0],
+		 cmd->event_bitmaps[1], cmd->event_bitmaps[2],
+		 cmd->event_bitmaps[3], enable ? "enabled" : "disabled");
 
 	ret = wmi_unified_cmd_send(wmi_handle, buf, len,
 				   WMI_WOW_ENABLE_DISABLE_WAKE_EVENT_CMDID);
@@ -7650,8 +7708,9 @@ QDF_STATUS send_add_wow_wakeup_event_cmd_tlv(wmi_unified_t wmi_handle,
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	WMI_LOGD("Wakeup pattern 0x%x %s in fw", bitmap,
-		 enable ? "enabled" : "disabled");
+	/* Do not access buf or cmd data after this as WMI tx complete interrupt
+	 * could have freed the buffer in different context
+	 */
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -10475,47 +10534,36 @@ QDF_STATUS send_enable_arp_ns_offload_cmd_tlv(wmi_unified_t wmi_handle,
 	return QDF_STATUS_SUCCESS;
 }
 
-QDF_STATUS send_enable_broadcast_filter_cmd_tlv(wmi_unified_t wmi_handle,
-			   uint8_t vdev_id, bool enable)
+QDF_STATUS send_conf_hw_filter_cmd_tlv(wmi_unified_t wmi, uint8_t vdev_id,
+				       uint8_t mode_bitmap)
 {
-	int32_t res;
+	QDF_STATUS status;
 	wmi_hw_data_filter_cmd_fixed_param *cmd;
-	A_UINT8 *buf_ptr;
-	wmi_buf_t buf;
-	int32_t len;
+	wmi_buf_t wmi_buf;
 
-	/*
-	 * TLV place holder size for array of ARP tuples
-	 */
-	len = sizeof(wmi_hw_data_filter_cmd_fixed_param);
-
-	buf = wmi_buf_alloc(wmi_handle, len);
-	if (!buf) {
-		WMI_LOGE("%s: wmi_buf_alloc failed", __func__);
+	wmi_buf = wmi_buf_alloc(wmi, sizeof(*cmd));
+	if (!wmi_buf) {
+		WMI_LOGE(FL("Out of memory"));
 		return QDF_STATUS_E_NOMEM;
 	}
 
-	buf_ptr = (A_UINT8 *) wmi_buf_data(buf);
-	cmd = (wmi_hw_data_filter_cmd_fixed_param *) buf_ptr;
+	cmd = (wmi_hw_data_filter_cmd_fixed_param *)wmi_buf_data(wmi_buf);
 	WMITLV_SET_HDR(&cmd->tlv_header,
-		       WMITLV_TAG_STRUC_wmi_hw_data_filter_cmd_fixed_param,
-		       WMITLV_GET_STRUCT_TLVLEN
-			       (wmi_hw_data_filter_cmd_fixed_param));
+		  WMITLV_TAG_STRUC_wmi_hw_data_filter_cmd_fixed_param,
+		  WMITLV_GET_STRUCT_TLVLEN(wmi_hw_data_filter_cmd_fixed_param));
 	cmd->vdev_id = vdev_id;
-	cmd->enable = enable;
-	cmd->hw_filter_bitmap = WMI_HW_DATA_FILTER_DROP_NON_ARP_BC;
+	cmd->enable = mode_bitmap != 0;
+	cmd->hw_filter_bitmap = mode_bitmap;
 
-	WMI_LOGD("HW Broadcast Filter vdev_id: %d", cmd->vdev_id);
-
-	res = wmi_unified_cmd_send(wmi_handle, buf, len,
-				     WMI_HW_DATA_FILTER_CMDID);
-	if (res) {
-		WMI_LOGE("Failed to enable ARP NDP/NSffload");
-		wmi_buf_free(buf);
-		return QDF_STATUS_E_FAILURE;
+	WMI_LOGD("conf hw filter vdev_id: %d, mode: %u", vdev_id, mode_bitmap);
+	status = wmi_unified_cmd_send(wmi, wmi_buf, sizeof(*cmd),
+				      WMI_HW_DATA_FILTER_CMDID);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		WMI_LOGE("Failed to configure hw filter");
+		wmi_buf_free(wmi_buf);
 	}
 
-	return QDF_STATUS_SUCCESS;
+	return status;
 }
 
 /**
@@ -10785,7 +10833,7 @@ QDF_STATUS send_roam_invoke_cmd_tlv(wmi_unified_t wmi_handle,
 	WMITLV_TAG_STRUC_wmi_roam_invoke_cmd_fixed_param,
 	WMITLV_GET_STRUCT_TLVLEN(wmi_roam_invoke_cmd_fixed_param));
 	cmd->vdev_id = roaminvoke->vdev_id;
-	cmd->flags = 0;
+	cmd->flags |= (1 << WMI_ROAM_INVOKE_FLAG_REPORT_FAILURE);
 
 	if (roaminvoke->frame_len)
 		cmd->roam_scan_mode = WMI_ROAM_INVOKE_SCAN_MODE_SKIP;
@@ -12946,6 +12994,7 @@ struct wmi_ops tlv_ops =  {
 	.send_process_ll_stats_set_cmd = send_process_ll_stats_set_cmd_tlv,
 	.send_process_ll_stats_get_cmd = send_process_ll_stats_get_cmd_tlv,
 	.send_get_stats_cmd = send_get_stats_cmd_tlv,
+	.send_congestion_cmd = send_congestion_cmd_tlv,
 	.send_snr_request_cmd = send_snr_request_cmd_tlv,
 	.send_snr_cmd = send_snr_cmd_tlv,
 	.send_link_status_req_cmd = send_link_status_req_cmd_tlv,
@@ -13032,8 +13081,7 @@ struct wmi_ops tlv_ops =  {
 		 send_pdev_set_dual_mac_config_cmd_tlv,
 	.send_enable_arp_ns_offload_cmd =
 		 send_enable_arp_ns_offload_cmd_tlv,
-	.send_enable_broadcast_filter_cmd =
-		 send_enable_broadcast_filter_cmd_tlv,
+	.send_conf_hw_filter_mode_cmd = send_conf_hw_filter_cmd_tlv,
 	.send_app_type1_params_in_fw_cmd =
 		 send_app_type1_params_in_fw_cmd_tlv,
 	.send_set_ssid_hotlist_cmd = send_set_ssid_hotlist_cmd_tlv,
