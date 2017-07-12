@@ -42,6 +42,7 @@ static bool input_boost_enabled;
 static unsigned int input_boost_ms = 200;
 module_param(input_boost_ms, uint, 0644);
 
+<<<<<<< HEAD
 static bool sched_boost_on_input;
 module_param(sched_boost_on_input, bool, 0644);
 
@@ -49,6 +50,8 @@ static bool sched_boost_active;
 static const unsigned long big_cluster_mask = CONFIG_PERFORMANCE_CLUSTER_CPU_MASK;
 static const unsigned long little_cluster_mask = CONFIG_POWER_CLUSTER_CPU_MASK;
 
+=======
+>>>>>>> cb6fa6b... Build Fixes for EAS Bringup (TEMP - DO NOT MERGE)
 static struct delayed_work input_boost_rem;
 static u64 last_input_time;
 
@@ -222,7 +225,7 @@ static void update_policy_online(void)
 
 static void do_input_boost_rem(struct work_struct *work)
 {
-	unsigned int i, ret;
+	unsigned int i;
 	struct cpu_sync *i_sync_info;
 
 	/* Reset the input_boost_min for all CPUs in the system */
@@ -235,16 +238,11 @@ static void do_input_boost_rem(struct work_struct *work)
 	/* Update policies for all online CPUs */
 	update_policy_online();
 
-	if (sched_boost_active) {
-		ret = sched_set_boost(0);
-		if (ret)
-			pr_err("cpu-boost: HMP boost disable failed\n");
-		sched_boost_active = false;
-	}
 }
 
 static int do_input_boost(void *data)
 {
+<<<<<<< HEAD
 	struct cpu_sync *i_sync_info, *cpu_sync_info;
 	struct cpufreq_policy policy;
 	int ret, i, cpu;
@@ -253,12 +251,19 @@ static int do_input_boost(void *data)
 	while (1) {
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
+=======
+	unsigned int i;
+	struct cpu_sync *i_sync_info;
+
+	cancel_delayed_work_sync(&input_boost_rem);
+>>>>>>> cb6fa6b... Build Fixes for EAS Bringup (TEMP - DO NOT MERGE)
 
 		if (kthread_should_stop())
 			break;
 
 		set_current_state(TASK_RUNNING);
 
+<<<<<<< HEAD
 		get_online_cpus();
 
 		for_each_online_cpu(i) {
@@ -294,6 +299,10 @@ bail_incorrect_governor:
 	}
 
 	return 0;
+=======
+	queue_delayed_work(cpu_boost_wq, &input_boost_rem,
+					msecs_to_jiffies(input_boost_ms));
+>>>>>>> cb6fa6b... Build Fixes for EAS Bringup (TEMP - DO NOT MERGE)
 }
 
 static void cpuboost_input_event(struct input_handle *handle,
