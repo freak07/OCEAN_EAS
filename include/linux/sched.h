@@ -390,6 +390,7 @@ extern void scheduler_tick(void);
 extern void sched_show_task(struct task_struct *p);
 
 #ifdef CONFIG_LOCKUP_DETECTOR
+extern void touch_softlockup_watchdog_sched(void);
 extern void touch_softlockup_watchdog(void);
 extern void touch_softlockup_watchdog_sync(void);
 extern void touch_all_softlockup_watchdogs(void);
@@ -399,7 +400,13 @@ extern int proc_dowatchdog_thresh(struct ctl_table *table, int write,
 extern unsigned int  softlockup_panic;
 extern unsigned int  hardlockup_panic;
 void lockup_detector_init(void);
+extern void watchdog_enable(unsigned int cpu);
+extern void watchdog_disable(unsigned int cpu);
+extern bool watchdog_configured(unsigned int cpu);
 #else
+static inline void touch_softlockup_watchdog_sched(void)
+{
+}
 static inline void touch_softlockup_watchdog(void)
 {
 }
@@ -1524,6 +1531,9 @@ struct task_struct {
 	atomic_t usage;
 	unsigned int flags;	/* per process flags, defined below */
 	unsigned int ptrace;
+//huruihuan add for kill task in D status
+	unsigned int kill_flag;
+	struct timespec ttu;
 	
 //xiaoxiaohuan add for fd leak debug
     bool dump_fd_leak;
@@ -2093,15 +2103,13 @@ static inline pid_t task_tgid_nr(struct task_struct *tsk)
 	return tsk->tgid;
 }
 
-pid_t task_tgid_nr_ns(struct task_struct *tsk, struct pid_namespace *ns);
-
 static inline pid_t task_tgid_vnr(struct task_struct *tsk)
 {
 	return pid_vnr(task_tgid(tsk));
 }
 
-
 static inline int pid_alive(const struct task_struct *p);
+static inline pid_t task_tgid_nr_ns(struct task_struct *tsk, struct pid_namespace *ns);
 static inline pid_t task_ppid_nr_ns(const struct task_struct *tsk, struct pid_namespace *ns)
 {
 	pid_t pid = 0;
@@ -2140,6 +2148,11 @@ static inline pid_t task_session_nr_ns(struct task_struct *tsk,
 static inline pid_t task_session_vnr(struct task_struct *tsk)
 {
 	return __task_pid_nr_ns(tsk, PIDTYPE_SID, NULL);
+}
+
+static inline pid_t task_tgid_nr_ns(struct task_struct *tsk, struct pid_namespace *ns)
+{
+	return __task_pid_nr_ns(tsk, __PIDTYPE_TGID, ns);
 }
 
 /* obsolete, do not use */
@@ -2227,6 +2240,7 @@ extern void thread_group_cputime_adjusted(struct task_struct *p, cputime_t *ut, 
 /*
  * Per process flags
  */
+#define PF_WAKE_UP_IDLE 0x00000002	/* try to wake up on an idle CPU */
 #define PF_EXITING	0x00000004	/* getting shut down */
 #define PF_EXITPIDONE	0x00000008	/* pi exit done on shut down */
 #define PF_VCPU		0x00000010	/* I'm a virtual CPU */
@@ -3377,5 +3391,14 @@ void cpufreq_add_update_util_hook(int cpu, struct update_util_data *data,
                                     unsigned int flags));
 void cpufreq_remove_update_util_hook(int cpu);
 #endif /* CONFIG_CPU_FREQ */
+
+extern int sched_set_wake_up_idle(struct task_struct *p, int wake_up_idle);
+
+static inline void set_wake_up_idle(bool enabled)
+{
+}
+
+extern void sched_set_cpu_cstate(int cpu, int cstate,
+			 int wakeup_energy, int wakeup_latency);
 
 #endif
