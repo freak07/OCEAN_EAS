@@ -362,8 +362,6 @@ static int trace_clocks_show(struct seq_file *m, void *unused)
 
 		if (c->num_fmax)
 			vlevel = find_vdd_level(c, c->rate);
-		trace_clock_state(c->dbg_name, c->prepare_count, c->count,
-					c->rate, vlevel);
 		total_cnt++;
 	}
 	mutex_unlock(&clk_list_lock);

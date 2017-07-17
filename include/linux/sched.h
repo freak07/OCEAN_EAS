@@ -2392,6 +2392,9 @@ extern void do_set_cpus_allowed(struct task_struct *p,
 
 extern int set_cpus_allowed_ptr(struct task_struct *p,
 				const struct cpumask *new_mask);
+				
+extern void sched_set_cpu_cstate(int cpu, int cstate,
+			 int wakeup_energy, int wakeup_latency);
 #else
 static inline void do_set_cpus_allowed(struct task_struct *p,
 				      const struct cpumask *new_mask)
@@ -2404,6 +2407,10 @@ static inline int set_cpus_allowed_ptr(struct task_struct *p,
 		return -EINVAL;
 	return 0;
 }
+static inline void
+sched_set_cpu_cstate(int cpu, int cstate, int wakeup_energy, int wakeup_latency)
+{
+}
 #endif
 
 #ifdef CONFIG_NO_HZ_COMMON
@@ -2413,6 +2420,11 @@ void calc_load_exit_idle(void);
 static inline void calc_load_enter_idle(void) { }
 static inline void calc_load_exit_idle(void) { }
 #endif /* CONFIG_NO_HZ_COMMON */
+
+static inline void set_wake_up_idle(bool enabled)
+{
+		/* do nothing yet for EAS */
+}
 
 /*
  * Do not use outside of architecture code which knows its limitations.

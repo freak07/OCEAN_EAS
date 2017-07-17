@@ -24,6 +24,8 @@
 #include <linux/irq.h>
 #include <trace/events/power.h>
 
+#include <trace/events/sched.h>
+
 #include "smpboot.h"
 
 #ifdef CONFIG_SMP
@@ -183,17 +185,10 @@ void cpu_hotplug_disable(void)
 }
 EXPORT_SYMBOL_GPL(cpu_hotplug_disable);
 
-static void __cpu_hotplug_enable(void)
-{
-	if (WARN_ONCE(!cpu_hotplug_disabled, "Unbalanced cpu hotplug enable\n"))
-		return;
-	cpu_hotplug_disabled--;
-}
-
 void cpu_hotplug_enable(void)
 {
 	cpu_maps_update_begin();
-	__cpu_hotplug_enable();
+	WARN_ON(--cpu_hotplug_disabled < 0);
 	cpu_maps_update_done();
 }
 EXPORT_SYMBOL_GPL(cpu_hotplug_enable);
@@ -230,6 +225,8 @@ static int cpu_notify(unsigned long val, void *v)
 	return __cpu_notify(val, v, -1, NULL);
 }
 
+#ifdef CONFIG_HOTPLUG_CPU
+
 static void cpu_notify_nofail(unsigned long val, void *v)
 {
 	BUG_ON(cpu_notify(val, v));
@@ -251,7 +248,6 @@ void __unregister_cpu_notifier(struct notifier_block *nb)
 }
 EXPORT_SYMBOL(__unregister_cpu_notifier);
 
-#ifdef CONFIG_HOTPLUG_CPU
 /**
  * clear_tasks_mm_cpumask - Safely clear tasks' mm_cpumask for a CPU
  * @cpu: a CPU id
@@ -369,21 +365,6 @@ static int _cpu_down(unsigned int cpu, int tasks_frozen)
 		goto out_release;
 	}
 
-	/*
-	 * By now we've cleared cpu_active_mask, wait for all preempt-disabled
-	 * and RCU users of this state to go away such that all new such users
-	 * will observe it.
-	 *
-	 * For CONFIG_PREEMPT we have preemptible RCU and its sync_rcu() might
-	 * not imply sync_sched(), so wait for both.
-	 *
-	 * Do sync before park smpboot threads to take care the rcu boost case.
-	 */
-	if (IS_ENABLED(CONFIG_PREEMPT))
-		synchronize_rcu_mult(call_rcu, call_rcu_sched);
-	else
-		synchronize_rcu();
-
 	smpboot_park_threads(cpu);
 
 	/*
@@ -431,6 +412,7 @@ static int _cpu_down(unsigned int cpu, int tasks_frozen)
 
 out_release:
 	cpu_hotplug_done();
+	trace_sched_cpu_hotplug(cpu, err, 0);
 	if (!err)
 		cpu_notify_nofail(CPU_POST_DEAD | mod, hcpu);
 	return err;
@@ -536,6 +518,7 @@ out_notify:
 		__cpu_notify(CPU_UP_CANCELED | mod, hcpu, nr_calls, NULL);
 out:
 	cpu_hotplug_done();
+	trace_sched_cpu_hotplug(cpu, ret, 1);
 
 	return ret;
 }
@@ -633,7 +616,7 @@ void enable_nonboot_cpus(void)
 
 	/* Allow everyone to use the CPU hotplug again */
 	cpu_maps_update_begin();
-	__cpu_hotplug_enable();
+	WARN_ON(--cpu_hotplug_disabled < 0);
 	if (cpumask_empty(frozen_cpus))
 		goto out;
 
@@ -792,6 +775,10 @@ static DECLARE_BITMAP(cpu_active_bits, CONFIG_NR_CPUS) __read_mostly;
 const struct cpumask *const cpu_active_mask = to_cpumask(cpu_active_bits);
 EXPORT_SYMBOL(cpu_active_mask);
 
+static DECLARE_BITMAP(cpu_isolated_bits, CONFIG_NR_CPUS) __read_mostly;
+const struct cpumask *const cpu_isolated_mask = to_cpumask(cpu_isolated_bits);
+EXPORT_SYMBOL(cpu_isolated_mask);
+
 void set_cpu_possible(unsigned int cpu, bool possible)
 {
 	if (possible)
@@ -826,6 +813,14 @@ void set_cpu_active(unsigned int cpu, bool active)
 		cpumask_clear_cpu(cpu, to_cpumask(cpu_active_bits));
 }
 
+void set_cpu_isolated(unsigned int cpu, bool isolated)
+{
+	if (isolated)
+		cpumask_set_cpu(cpu, to_cpumask(cpu_isolated_bits));
+	else
+		cpumask_clear_cpu(cpu, to_cpumask(cpu_isolated_bits));
+}
+
 void init_cpu_present(const struct cpumask *src)
 {
 	cpumask_copy(to_cpumask(cpu_present_bits), src);
@@ -840,3 +835,28 @@ void init_cpu_online(const struct cpumask *src)
 {
 	cpumask_copy(to_cpumask(cpu_online_bits), src);
 }
+
+void init_cpu_isolated(const struct cpumask *src)
+{
+	cpumask_copy(to_cpumask(cpu_isolated_bits), src);
+}
+
+static ATOMIC_NOTIFIER_HEAD(idle_notifier);
+
+void idle_notifier_register(struct notifier_block *n)
+{
+	atomic_notifier_chain_register(&idle_notifier, n);
+}
+EXPORT_SYMBOL_GPL(idle_notifier_register);
+
+void idle_notifier_unregister(struct notifier_block *n)
+{
+	atomic_notifier_chain_unregister(&idle_notifier, n);
+}
+EXPORT_SYMBOL_GPL(idle_notifier_unregister);
+
+void idle_notifier_call_chain(unsigned long val)
+{
+	atomic_notifier_call_chain(&idle_notifier, val, NULL);
+}
+EXPORT_SYMBOL_GPL(idle_notifier_call_chain);
