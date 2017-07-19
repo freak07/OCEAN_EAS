@@ -1407,7 +1407,6 @@ static const struct file_operations proc_pid_sched_operations = {
 	.llseek		= seq_lseek,
 	.release	= single_release,
 };
-
 #endif
 
 #ifdef CONFIG_SCHED_AUTOGROUP
@@ -2283,7 +2282,7 @@ static int timerslack_ns_show(struct seq_file *m, void *v)
 
 	if (ptrace_may_access(p, PTRACE_MODE_ATTACH_FSCREDS)) {
 		task_lock(p);
-		seq_printf(m, "%llu\n", p->timer_slack_ns);
+		seq_printf(m, "%lu\n", p->timer_slack_ns);
 		task_unlock(p);
 	} else
 		err = -EPERM;

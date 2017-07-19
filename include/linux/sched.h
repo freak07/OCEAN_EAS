@@ -2240,7 +2240,6 @@ extern void thread_group_cputime_adjusted(struct task_struct *p, cputime_t *ut, 
 /*
  * Per process flags
  */
-#define PF_WAKE_UP_IDLE 0x00000002	/* try to wake up on an idle CPU */
 #define PF_EXITING	0x00000004	/* getting shut down */
 #define PF_EXITPIDONE	0x00000008	/* pi exit done on shut down */
 #define PF_VCPU		0x00000010	/* I'm a virtual CPU */
@@ -3123,6 +3122,12 @@ extern int _cond_resched(void);
 
 extern int __cond_resched_lock(spinlock_t *lock);
 
+#ifdef CONFIG_PREEMPT_COUNT
+#define PREEMPT_LOCK_OFFSET	PREEMPT_OFFSET
+#else
+#define PREEMPT_LOCK_OFFSET	0
+#endif
+
 #define cond_resched_lock(lock) ({				\
 	___might_sleep(__FILE__, __LINE__, PREEMPT_LOCK_OFFSET);\
 	__cond_resched_lock(lock);				\
@@ -3391,8 +3396,6 @@ void cpufreq_add_update_util_hook(int cpu, struct update_util_data *data,
                                     unsigned int flags));
 void cpufreq_remove_update_util_hook(int cpu);
 #endif /* CONFIG_CPU_FREQ */
-
-extern int sched_set_wake_up_idle(struct task_struct *p, int wake_up_idle);
 
 static inline void set_wake_up_idle(bool enabled)
 {
