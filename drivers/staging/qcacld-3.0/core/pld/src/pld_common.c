@@ -1195,9 +1195,6 @@ void pld_increment_driver_load_cnt(struct device *dev)
 	case PLD_BUS_TYPE_PCIE:
 		pld_pcie_increment_driver_load_cnt();
 		break;
-	case PLD_BUS_TYPE_SNOC:
-		pld_snoc_increment_driver_load_cnt();
-		break;
 	case PLD_BUS_TYPE_SDIO:
 		break;
 	default:
@@ -1221,9 +1218,6 @@ int pld_get_driver_load_cnt(struct device *dev)
 	switch (pld_get_bus_type(dev)) {
 	case PLD_BUS_TYPE_PCIE:
 		ret = pld_pcie_get_driver_load_cnt();
-		break;
-	case PLD_BUS_TYPE_SNOC:
-		ret = pld_snoc_get_driver_load_cnt();
 		break;
 	case PLD_BUS_TYPE_SDIO:
 		break;

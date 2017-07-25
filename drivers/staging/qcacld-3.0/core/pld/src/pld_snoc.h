@@ -269,15 +269,5 @@ static inline int pld_snoc_set_fw_log_mode(u8 fw_log_mode)
 {
 	return icnss_set_fw_log_mode(fw_log_mode);
 }
-
-static inline void pld_snoc_increment_driver_load_cnt(void)
-{
-	icnss_increment_driver_load_cnt();
-}
-
-static inline int pld_snoc_get_driver_load_cnt(void)
-{
-	return icnss_get_driver_load_cnt();
-}
 #endif
 #endif
