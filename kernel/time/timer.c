@@ -1640,7 +1640,7 @@ static void migrate_timer_list(struct tvec_base *new_base,
 	}
 }
 
-static void __migrate_timers(int cpu, bool remove_pinned)
+static void __migrate_timers(int cpu, bool wait, bool remove_pinned)
 {
 	struct tvec_base *old_base;
 	struct tvec_base *new_base;
@@ -1656,14 +1656,18 @@ static void __migrate_timers(int cpu, bool remove_pinned)
 	spin_lock_irqsave(&new_base->lock, flags);
 	spin_lock_nested(&old_base->lock, SINGLE_DEPTH_NESTING);
 
-	/*
-	 * If we're in the hotplug path, kill the system if there's a running
-	 * timer. It's ok to have a running timer in the isolation case - the
-	 * currently running or just expired timers are off of the timer wheel
-	 * and so everything else can be migrated off.
-	 */
-	if (!cpu_online(cpu))
+	if (wait) {
+		/* Ensure timers are done running before continuing */
+		while (old_base->running_timer) {
+			spin_unlock(&old_base->lock);
+			spin_unlock_irqrestore(&new_base->lock, flags);
+			cpu_relax();
+			spin_lock_irqsave(&new_base->lock, flags);
+			spin_lock_nested(&old_base->lock, SINGLE_DEPTH_NESTING);
+		}
+	} else {
 		BUG_ON(old_base->running_timer);
+	}
 
 	for (i = 0; i < TVR_SIZE; i++)
 		migrate_timer_list(new_base, old_base->tv1.vec + i,
@@ -1688,12 +1692,12 @@ static void __migrate_timers(int cpu, bool remove_pinned)
 static void migrate_timers(int cpu)
 {
 	BUG_ON(cpu_online(cpu));
-	__migrate_timers(cpu, true);
+	__migrate_timers(cpu, false, true);
 }
 
 void timer_quiesce_cpu(void *cpup)
 {
-	__migrate_timers(*(int *)cpup, false);
+	__migrate_timers(*(int *)cpup, true, false);
 }
 
 static int timer_cpu_notify(struct notifier_block *self,
