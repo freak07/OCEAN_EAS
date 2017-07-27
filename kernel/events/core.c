@@ -3422,8 +3422,7 @@ static int perf_event_read(struct perf_event *event, bool group)
 	 * If event is enabled and currently active on a CPU, update the
 	 * value in the event structure:
 	 */
-	if (event->state == PERF_EVENT_STATE_ACTIVE &&
-						!cpu_isolated(event->oncpu)) {
+	if (event->state == PERF_EVENT_STATE_ACTIVE) {
 		struct perf_read_data data = {
 			.event = event,
 			.group = group,
