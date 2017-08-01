@@ -25,8 +25,8 @@
  * For MSM8996 (big.LITTLE). CPU0 and CPU1 are LITTLE CPUs; CPU2 and CPU3 are
  * big CPUs.
  */
-#define LITTLE_CPU_MASK (CPU_MASK(0) | CPU_MASK(1))
-#define BIG_CPU_MASK    (CPU_MASK(2) | CPU_MASK(3))
+#define LITTLE_CPU_MASK (CPU_MASK(0) | CPU_MASK(1) | CPU_MASK(2) | CPU_MASK(3))
+#define BIG_CPU_MASK    (CPU_MASK(4) | CPU_MASK(5) | CPU_MASK(6) | CPU_MASK(7))
 
 /* Available bits for boost_policy state */
 #define DRIVER_ENABLED        (1U << 0)
@@ -141,8 +141,8 @@ static void ib_boost_main(struct work_struct *work)
 		 * CPUs that are running at their min freq are ignored as they
 		 * could be idling and increase the boost duration too much.
 		 */
-		ib->adj_duration_ms *= boost_freq * 100 / freq;
-		ib->adj_duration_ms /= 100;
+		ib->adj_duration_ms *= boost_freq * 1500 / freq;
+		ib->adj_duration_ms /= 1500;
 
 		/*
 		 * Only allow two CPUs to be boosted at any given time. The 2nd
