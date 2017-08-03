@@ -34,11 +34,6 @@
 
 #include "power.h"
 
-//qiuchangping@BSP 2016-05-19
-//add for when sync filesystem take long time and AP hold sensor
-//sometime sensor data will block the sleep process alway
-#include <linux/gpio.h>
-
 static struct delayed_work suspend_monitor_debug_work;
 static int suspend_monitor_debug_count = 0;
 static int suspend_monitor_debug_init = 0;
@@ -421,7 +416,6 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 			trace_suspend_resume(TPS("machine_suspend"),
 				state, false);
 			events_check_enabled = false;
-			need_show_pinctrl_irq = true;
 		} else if (*wakeup) {
 			pm_get_active_wakeup_sources(suspend_abort,
 				MAX_SUSPEND_ABORT_LEN);
@@ -439,8 +433,6 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 
  Platform_wake:
 	platform_resume_noirq(state);
-//huruihuan add for speed up resume
-	thaw_fingerprintd();
 	dpm_resume_noirq(PMSG_RESUME);
 
  Platform_early_resume:
@@ -603,16 +595,8 @@ int pm_suspend(suspend_state_t state)
 
 	pm_suspend_marker("entry");
 
-    //qiuchangping@BSP 2016-05-19 
-    //add for when sync filesystem take long time and AP hold sensor
-    //sometime sensor data will block the sleep process alway
-    gpio_set_value(slst_gpio_base_id + PROC_AWAKE_ID, 0);
     //pr_err("yyyyyy %s: PM_SUSPEND_PREPARE %d \n", __func__, slst_gpio_base_id + PROC_AWAKE_ID);
 	error = enter_state(state);
-    //qiuchangping@BSP 2016-05-19 
-    //add for when sync filesystem take long time and AP hold sensor
-    //sometime sensor data will block the sleep process alway
-    gpio_set_value(slst_gpio_base_id + PROC_AWAKE_ID, 1);
     //pr_err("yyyyyy %s: PM_POST_SUSPEND %d \n", __func__, slst_gpio_base_id + PROC_AWAKE_ID);
 
 	if (error) {

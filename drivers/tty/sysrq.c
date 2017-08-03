@@ -287,19 +287,6 @@ static struct sysrq_key_op sysrq_showstate_op = {
 	.enable_mask	= SYSRQ_ENABLE_DUMP,
 };
 
-static void sysrq_handle_showstate_blocked(int key)
-{
-	show_state_filter(TASK_UNINTERRUPTIBLE);
-	pr_info("### Show All Tasks in System Server ###\n");
-	show_thread_group_state_filter("system_server", 0);
-}
-static struct sysrq_key_op sysrq_showstate_blocked_op = {
-	.handler	= sysrq_handle_showstate_blocked,
-	.help_msg	= "show-blocked-tasks(w)",
-	.action_msg	= "Show Blocked State",
-	.enable_mask	= SYSRQ_ENABLE_DUMP,
-};
-
 #ifdef CONFIG_TRACING
 #include <linux/ftrace.h>
 
@@ -476,7 +463,6 @@ static struct sysrq_key_op *sysrq_key_table[36] = {
 	&sysrq_mountro_op,		/* u */
 	/* v: May be registered for frame buffer console restore */
 	NULL,				/* v */
-	&sysrq_showstate_blocked_op,	/* w */
 	/* x: May be registered on mips for TLB dump */
 	/* x: May be registered on ppc/powerpc for xmon */
 	/* x: May be registered on sparc64 for global PMU dump */

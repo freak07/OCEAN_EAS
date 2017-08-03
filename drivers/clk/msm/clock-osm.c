@@ -3211,6 +3211,9 @@ static int cpu_clock_osm_driver_probe(struct platform_device *pdev)
 	u32 pte_efuse;
 	char pwrclspeedbinstr[] = "qcom,pwrcl-speedbin0-v0";
 	char perfclspeedbinstr[] = "qcom,perfcl-speedbin0-v0";
+	struct cpu_cycle_counter_cb cb = {
+		.get_cpu_cycle_counter = clk_osm_get_cpu_cycle_counter,
+	};
 
 	if (of_find_compatible_node(NULL, NULL,
 				    "qcom,cpu-clock-osm-msm8998-v1")) {
@@ -3476,6 +3479,8 @@ static int cpu_clock_osm_driver_probe(struct platform_device *pdev)
 	populate_debugfs_dir(&perfcl_clk);
 
 	of_platform_populate(pdev->dev.of_node, NULL, NULL, &pdev->dev);
+
+	register_cpu_cycle_counter_cb(&cb);
 
 	pr_info("OSM driver inited\n");
 	put_online_cpus();
