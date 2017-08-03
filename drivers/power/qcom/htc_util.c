@@ -738,10 +738,6 @@ static void htc_pm_monitor_work_func(struct work_struct *work)
   	/* Show interesting sensor temperature */
 	htc_show_sensor_temp();
 
-	/* Show lmh status*/
-	htc_lmh_stat_show();
-	htc_lmh_stat_clear();
-
 	/* Show interrupt status */
 	htc_show_interrupts();
 
