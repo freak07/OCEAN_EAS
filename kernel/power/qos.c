@@ -712,7 +712,6 @@ void pm_qos_add_request(struct pm_qos_request *req,
 		cpumask_setall(&req->cpus_affine);
 		break;
 	}
-
 	INIT_DELAYED_WORK(&req->work, pm_qos_work_fn);
 	trace_pm_qos_add_request(pm_qos_class, value);
 	pm_qos_update_target(pm_qos_array[pm_qos_class]->constraints,
