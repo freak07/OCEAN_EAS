@@ -195,6 +195,10 @@ static struct wakelock *wakelock_lookup_add(const char *name, size_t len,
 	return wl;
 }
 
+#if 1
+extern void register_squeeze(unsigned long timestamp, int vibration);
+#endif
+
 int pm_wake_lock(const char *buf)
 {
 	const char *str = buf;
@@ -222,6 +226,12 @@ int pm_wake_lock(const char *buf)
 
 	mutex_lock(&wakelocks_lock);
 
+#if 1
+	pr_info("%s lock user wakelock data %s\n",__func__,buf);
+	if (strncmp("SensorService_wakelock", buf, len)==0) {
+		register_squeeze(jiffies,0);
+	}
+#endif
 	wl = wakelock_lookup_add(buf, len, true);
 	if (IS_ERR(wl)) {
 		ret = PTR_ERR(wl);
@@ -263,7 +273,9 @@ int pm_wake_unlock(const char *buf)
 		return -EINVAL;
 
 	mutex_lock(&wakelocks_lock);
-
+#if 0
+	pr_info("%s unlock user wakelock data %s\n",__func__,buf);
+#endif
 	wl = wakelock_lookup_add(buf, len, false);
 	if (IS_ERR(wl)) {
 		ret = PTR_ERR(wl);
