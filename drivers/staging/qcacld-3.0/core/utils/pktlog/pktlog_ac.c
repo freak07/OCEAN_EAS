@@ -516,21 +516,21 @@ int pktlog_enable(struct hif_opaque_softc *scn, int32_t log_state,
 	int error;
 
 	if (!scn) {
-		pr_err("%s: Invalid scn context\n", __func__);
+		printk("%s: Invalid scn context\n", __func__);
 		ASSERT(0);
 		return -EINVAL;
 	}
 
 	txrx_pdev = cds_get_context(QDF_MODULE_ID_TXRX);
 	if (!txrx_pdev) {
-		pr_err("%s: Invalid txrx_pdev context\n", __func__);
+		printk("%s: Invalid txrx_pdev context\n", __func__);
 		ASSERT(0);
 		return -EINVAL;
 	}
 
 	pl_dev = txrx_pdev->pl_dev;
 	if (!pl_dev) {
-		pr_err("%s: Invalid pktlog context\n", __func__);
+		printk("%s: Invalid pktlog context\n", __func__);
 		ASSERT(0);
 		return -EINVAL;
 	}
@@ -547,6 +547,9 @@ int pktlog_enable(struct hif_opaque_softc *scn, int32_t log_state,
 	mutex_unlock(&pl_info->pktlog_mutex);
 	return error;
 }
+
+#define ONE_MEGABYTE (1024 * 1024)
+#define MAX_ALLOWED_PKTLOG_SIZE (16 * ONE_MEGABYTE)
 
 static int __pktlog_setsize(struct hif_opaque_softc *scn, int32_t size)
 {
@@ -568,7 +571,11 @@ static int __pktlog_setsize(struct hif_opaque_softc *scn, int32_t size)
 
 	pl_info->curr_pkt_state = PKTLOG_OPR_IN_PROGRESS;
 
-	if (size < 0) {
+	if (size < ONE_MEGABYTE || size > MAX_ALLOWED_PKTLOG_SIZE) {
+		qdf_print("%s: Cannot Set Pktlog Buffer size of %d bytes."
+			"Min required is %d MB and Max allowed is %d MB.\n",
+			__func__, size, (ONE_MEGABYTE/ONE_MEGABYTE),
+			(MAX_ALLOWED_PKTLOG_SIZE/ONE_MEGABYTE));
 		pl_info->curr_pkt_state = PKTLOG_OPR_NOT_IN_PROGRESS;
 		return -EINVAL;
 	}
@@ -802,7 +809,7 @@ static void pktlog_h2t_send_complete(void *context, HTC_PACKET *htc_pkt)
  *
  * Return: HTC action
  */
-static HTC_SEND_FULL_ACTION pktlog_h2t_full(void *context, HTC_PACKET *pkt)
+static enum htc_send_full_action pktlog_h2t_full(void *context, HTC_PACKET *pkt)
 {
 	return HTC_SEND_FULL_KEEP;
 }
@@ -815,8 +822,8 @@ static HTC_SEND_FULL_ACTION pktlog_h2t_full(void *context, HTC_PACKET *pkt)
  */
 static int pktlog_htc_connect_service(struct ol_pktlog_dev_t *pdev)
 {
-	HTC_SERVICE_CONNECT_REQ connect;
-	HTC_SERVICE_CONNECT_RESP response;
+	struct htc_service_connect_req connect;
+	struct htc_service_connect_resp response;
 	A_STATUS status;
 
 	qdf_mem_set(&connect, sizeof(connect), 0);
@@ -852,6 +859,10 @@ static int pktlog_htc_connect_service(struct ol_pktlog_dev_t *pdev)
 
 	if (status != A_OK) {
 		pdev->mt_pktlog_enabled = false;
+
+		if (!cds_is_fw_down())
+			QDF_BUG(0);
+
 		return -EIO;       /* failure */
 	}
 
