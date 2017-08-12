@@ -1528,10 +1528,7 @@ struct task_struct {
 	atomic_t usage;
 	unsigned int flags;	/* per process flags, defined below */
 	unsigned int ptrace;
-//huruihuan add for kill task in D status
-	unsigned int kill_flag;
-	struct timespec ttu;
-	
+
 //xiaoxiaohuan add for fd leak debug
     bool dump_fd_leak;
 

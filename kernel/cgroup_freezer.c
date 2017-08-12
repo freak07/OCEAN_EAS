@@ -332,9 +332,8 @@ static void unfreeze_cgroup(struct freezer *freezer)
 	struct task_struct *task;
 
 	css_task_iter_start(&freezer->css, &it);
-	while ((task = css_task_iter_next(&it)))
-		__thaw_task(task);
-	css_task_iter_end(&it);
+
+	read_unlock(&tasklist_lock);
 }
 
 /**
