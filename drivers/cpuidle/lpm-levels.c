@@ -1937,7 +1937,6 @@ static int lpm_suspend_enter(suspend_state_t state)
 	 * LPMs(XO and Vmin).
 	 */
 	clock_debug_print_enabled();
-#endif
 
 	BUG_ON(!use_psci);
 
