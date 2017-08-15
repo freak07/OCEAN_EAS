@@ -329,7 +329,6 @@ static void freeze_cgroup(struct freezer *freezer)
 static void unfreeze_cgroup(struct freezer *freezer)
 {
 	struct css_task_iter it;
-	struct task_struct *task;
 
 	css_task_iter_start(&freezer->css, &it);
 
