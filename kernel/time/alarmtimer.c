@@ -373,6 +373,8 @@ static int alarmtimer_suspend(struct device *dev)
 	int i;
 	int ret = 0;
 
+	cancel_delayed_work_sync(&work);
+
 	spin_lock_irqsave(&freezer_delta_lock, flags);
 	min = freezer_delta;
 	freezer_delta = ktime_set(0, 0);
