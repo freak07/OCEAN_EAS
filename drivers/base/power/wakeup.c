@@ -18,6 +18,7 @@
 #include <linux/types.h>
 #include <linux/moduleparam.h>
 #include <trace/events/power.h>
+#include <linux/pm_wakeup.h>
 
 #include "power.h"
 
@@ -81,6 +82,11 @@ static struct wakeup_source deleted_ws = {
 	.name = "deleted",
 	.lock =  __SPIN_LOCK_UNLOCKED(deleted_ws.lock),
 };
+
+//wujialong@BSP, 2016/05/4, add for sleep debug
+#define WORK_TIMEOUT	60*1000
+static void ws_printk(struct work_struct *work);
+static DECLARE_DELAYED_WORK(ws_printk_work, ws_printk);
 
 /**
  * wakeup_source_prepare - Prepare a new wakeup source for initialization.
@@ -915,6 +921,22 @@ void pm_print_active_wakeup_sources(void)
 }
 EXPORT_SYMBOL_GPL(pm_print_active_wakeup_sources);
 
+static void ws_printk(struct work_struct *work)
+{
+        pm_print_active_wakeup_sources();
+        queue_delayed_work(system_freezable_wq, &ws_printk_work, msecs_to_jiffies(WORK_TIMEOUT));
+}
+
+void pm_print_active_wakeup_sources_queue(bool on)
+{
+        if (on) {
+                queue_delayed_work(system_freezable_wq, &ws_printk_work, msecs_to_jiffies(WORK_TIMEOUT));
+        } else {
+                cancel_delayed_work(&ws_printk_work);
+        }
+}
+EXPORT_SYMBOL_GPL(pm_print_active_wakeup_sources_queue);
+
 /**
  * pm_wakeup_pending - Check if power transition in progress should be aborted.
  *
@@ -1107,32 +1129,6 @@ static int print_wakeup_source_stats(struct seq_file *m,
 
 	return 0;
 }
-
-#ifdef CONFIG_HTC_POWER_DEBUG
-void htc_print_wakeup_source(struct wakeup_source *ws)
-{
-        if (ws->active) {
-                if (ws->timer_expires) {
-                        long timeout = ws->timer_expires - jiffies;
-                        if (timeout > 0)
-                                printk(" '%s', time left %ld ticks; ", ws->name, timeout);
-                } else
-                        printk(" '%s' ", ws->name);
-        }
-}
-
-void htc_print_active_wakeup_sources(void)
-{
-        struct wakeup_source *ws;
-
-        printk("wakeup sources: ");
-        rcu_read_lock();
-        list_for_each_entry_rcu(ws, &wakeup_sources, entry)
-                htc_print_wakeup_source(ws);
-        rcu_read_unlock();
-        printk("\n");
-}
-#endif
 
 /**
  * wakeup_sources_stats_show - Print wakeup sources statistics information.
