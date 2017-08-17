@@ -33,7 +33,6 @@
 #include <linux/interrupt.h>
 #include <linux/regulator/driver.h>
 #include <linux/uaccess.h>
-#include <linux/sched.h>
 
 #include <soc/qcom/scm.h>
 #include <soc/qcom/clock-pll.h>
@@ -116,7 +115,6 @@ enum clk_osm_trace_packet_id {
 #define WDOG_DOMAIN_PSTATE_STATUS	0x1c00
 #define WDOG_PROGRAM_COUNTER		0x1c74
 
-#define OSM_CYCLE_COUNTER_USE_XO_EDGE_EN BIT(8)
 #define PLL_MODE		0x0
 #define PLL_L_VAL		0x4
 #define PLL_USER_CTRL		0xC
@@ -361,9 +359,8 @@ struct clk_osm {
 	void *vbases[NUM_BASES];
 	unsigned long pbases[NUM_BASES];
 	void __iomem *debug_regs[DEBUG_REG_NUM];
-	spinlock_t lock;
-
 	u32 cpu_reg_mask;
+
 	u32 num_entries;
 	u32 cluster_num;
 	u32 irq;
@@ -376,8 +373,6 @@ struct clk_osm {
 	u32 cycle_counter_reads;
 	u32 cycle_counter_delay;
 	u32 cycle_counter_factor;
-	u64 total_cycle_counter;
-	u32 prev_cycle_counter;
 	u32 l_val_base;
 	u32 apcs_itm_present;
 	u32 apcs_cfg_rcgr;
@@ -2142,10 +2137,8 @@ static void clk_osm_setup_cycle_counters(struct clk_osm *c)
 	val |= BIT(0);
 	/* Setup OSM clock to XO ratio */
 	do_div(ratio, c->xo_clk_rate);
-	val |= BVAL(5, 1, ratio - 1) | OSM_CYCLE_COUNTER_USE_XO_EDGE_EN;
+	val |= BVAL(5, 1, ratio - 1);
 	clk_osm_write_reg(c, val, OSM_CYCLE_COUNTER_CTRL_REG);
-	c->total_cycle_counter = 0;
-	c->prev_cycle_counter = 0;
 	pr_debug("OSM to XO clock ratio: %d\n", ratio);
 }
 
@@ -3358,9 +3351,6 @@ static int cpu_clock_osm_driver_probe(struct platform_device *pdev)
 		pr_err("failed to initialize ACD for perfcl, rc=%d\n", rc);
 		return rc;
 	}
-
-	spin_lock_init(&pwrcl_clk.lock);
-	spin_lock_init(&perfcl_clk.lock);
 
 	pwrcl_clk.panic_notifier.notifier_call = clk_osm_panic_callback;
 	atomic_notifier_chain_register(&panic_notifier_list,
