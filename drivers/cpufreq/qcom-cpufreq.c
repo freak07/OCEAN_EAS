@@ -36,7 +36,7 @@
 static DEFINE_MUTEX(l2bw_lock);
 
 
-static unsigned long arg_cpu_max_c1 = 1900800;
+static unsigned long arg_cpu_max_c1 = 2035200;
 
 static int __init cpufreq_read_cpu_max_c1(char *cpu_max_c1)
 {
@@ -53,7 +53,7 @@ static int __init cpufreq_read_cpu_max_c1(char *cpu_max_c1)
 }
 __setup("cpu_max_c1=", cpufreq_read_cpu_max_c1);
 
-static unsigned long arg_cpu_max_c2 = 2457600;
+static unsigned long arg_cpu_max_c2 = 2592000;
 
 static int __init cpufreq_read_cpu_max_c2(char *cpu_max_c2)
 {
@@ -82,8 +82,8 @@ struct cpufreq_suspend_t {
 };
 
 static DEFINE_PER_CPU(struct cpufreq_suspend_t, suspend_data);
-#define LITTLE_CPU_QOS_FREQ 1900800
-#define BIG_CPU_QOS_FREQ    2361600
+#define LITTLE_CPU_QOS_FREQ 2035200
+#define BIG_CPU_QOS_FREQ    2592000
 
 unsigned int cluster1_first_cpu = 0;
 static bool qos_cpufreq_flag = false;
