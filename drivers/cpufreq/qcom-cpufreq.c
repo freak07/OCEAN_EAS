@@ -82,8 +82,8 @@ struct cpufreq_suspend_t {
 };
 
 static DEFINE_PER_CPU(struct cpufreq_suspend_t, suspend_data);
-#define LITTLE_CPU_QOS_FREQ 1900800
-#define BIG_CPU_QOS_FREQ    2361600
+#define LITTLE_CPU_QOS_FREQ 2035200
+#define BIG_CPU_QOS_FREQ    2592000
 
 unsigned int cluster1_first_cpu = 0;
 static bool qos_cpufreq_flag = false;
