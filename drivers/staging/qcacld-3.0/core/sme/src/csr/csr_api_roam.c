@@ -17248,6 +17248,7 @@ QDF_STATUS csr_get_snr(tpAniSirGlobal pMac,
 
 	pMsg->msgType = eWNI_SME_GET_SNR_REQ;
 	pMsg->msgLen = (uint16_t) sizeof(tAniGetSnrReq);
+	pMsg->sessionId = sessionId;
 	pMsg->staId = staId;
 	pMsg->snrCallback = callback;
 	pMsg->pDevContext = pContext;
