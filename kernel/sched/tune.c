@@ -519,7 +519,13 @@ int schedtune_cpu_boost(int cpu)
 	struct boost_groups *bg;
 
 	bg = &per_cpu(cpu_boost_groups, cpu);
-	return bg->boost_max;
+
+#ifdef CONFIG_CPU_BOOST
+    if (sched_dynamic_stune_boost > bg->boost_max)
+        return sched_dynamic_stune_boost;
+    else
+#endif /* CONFIG_CPU_BOOST */
+        return bg->boost_max;
 }
 
 int schedtune_task_boost(struct task_struct *p)

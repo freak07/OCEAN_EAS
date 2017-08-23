@@ -40,6 +40,11 @@ module_param(input_boost_enabled, uint, 0644);
 static unsigned int input_boost_ms = 40;
 module_param(input_boost_ms, uint, 0644);
 
+static int dynamic_stune_boost = 0;
+module_param(dynamic_stune_boost, uint, 0644);
+
+int sched_dynamic_stune_boost = 0;
+
 static struct delayed_work input_boost_rem;
 static u64 last_input_time;
 #define MIN_INPUT_INTERVAL (150 * USEC_PER_MSEC)
@@ -169,6 +174,9 @@ static void do_input_boost_rem(struct work_struct *work)
 		i_sync_info->input_boost_min = 0;
 	}
 
+	// Reset dynamic stune boost value to lowest schedtune.boost value possible
+	sched_dynamic_stune_boost = -100;
+        
 	/* Update policies for all online CPUs */
 	update_policy_online();
 
@@ -188,6 +196,9 @@ static void do_input_boost(struct work_struct *work)
 		i_sync_info->input_boost_min = i_sync_info->input_boost_freq;
 	}
 
+	// Set dynamic stune boost value
+	sched_dynamic_stune_boost = dynamic_stune_boost;
+        
 	/* Update policies for all online CPUs */
 	update_policy_online();
 
