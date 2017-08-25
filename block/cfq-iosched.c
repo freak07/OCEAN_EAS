@@ -86,7 +86,6 @@ struct cfq_ttime {
 	u64 ttime_total;
 	u64 ttime_mean;
 	unsigned long ttime_samples;
-	unsigned long ttime_mean;
 };
 
 /*
