@@ -1025,7 +1025,7 @@
 
 &gfx_cpr {
 	compatible = "qcom,cpr4-msm8998-v2-mmss-regulator";
-	qcom,cpr-aging-ref-voltage = <1088000>;
+	qcom,cpr-aging-ref-voltage = <988000>;
 };
 
 &gfx_vreg {
