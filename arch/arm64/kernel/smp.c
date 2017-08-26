@@ -765,18 +765,15 @@ static void smp_send_all_cpu_backtrace(unsigned int backtrace_timeout)
 static void smp_send_all_cpu_backtrace(void)
 #endif
 {
-	unsigned int this_cpu;
+	unsigned int this_cpu = smp_processor_id();
 	int i;
 
-	this_cpu = get_cpu();;
-	if (test_and_set_bit(0, &backtrace_flag)) {
+	if (test_and_set_bit(0, &backtrace_flag))
 		/*
 		 * If there is already a trigger_all_cpu_backtrace() in progress
 		 * (backtrace_flag == 1), don't output double cpu dump infos.
 		 */
-		put_cpu();
 		return;
-	}
 
 	cpumask_copy(&backtrace_mask, cpu_online_mask);
 	cpumask_clear_cpu(this_cpu, &backtrace_mask);
@@ -788,7 +785,6 @@ static void smp_send_all_cpu_backtrace(void)
 	if (!cpumask_empty(&backtrace_mask))
 		smp_cross_call_common(&backtrace_mask, IPI_CPU_BACKTRACE);
 
-	put_cpu();
 	/* Wait for up to 10 seconds for all other CPUs to do the backtrace */
 #if defined(CONFIG_HTC_DEBUG_WATCHDOG)
 	for (i = 0; i < backtrace_timeout * 1000; i++)
