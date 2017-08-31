@@ -2286,7 +2286,7 @@ static ssize_t lp5562_led_multi_color_store(struct device *dev,
 		return -EINVAL;
 	led_cdev = (struct led_classdev *)dev_get_drvdata(dev);
 	ldata = container_of(led_cdev, struct lp5562_led, cdev);
-	wake_lock_timeout(&(ldata->led_wake_lock), 2*HZ);
+	wake_lock_timeout(&(ldata->led_wake_lock), msecs_to_jiffies(2000));
 	ldata->Mode = (val & Mode_Mask) >> 24;
 	ldata->Red = (val & Red_Mask) >> 16;
 	ldata->Green = (val & Green_Mask) >> 8;

@@ -348,7 +348,7 @@ static DEFINE_TIMER(suspend_sys_sync_timer, suspend_sys_sync_handler, 0, 0);
 /* value should be less then half of input event wake lock timeout value
  * which is currently set to 5*HZ (see drivers/input/evdev.c)
  */
-#define SUSPEND_SYS_SYNC_TIMEOUT (HZ/4)
+#define SUSPEND_SYS_SYNC_TIMEOUT (msecs_to_jiffies(250)
 static void suspend_sys_sync_handler(unsigned long arg)
 {
 	if (suspend_sys_sync_count == 0) {
@@ -358,7 +358,7 @@ static void suspend_sys_sync_handler(unsigned long arg)
 		complete(&suspend_sys_sync_comp);
 	} else {
 		mod_timer(&suspend_sys_sync_timer, jiffies +
-						SUSPEND_SYS_SYNC_TIMEOUT);
+						msecs_to_jiffies(SUSPEND_SYS_SYNC_TIMEOUT));
 	}
 }
 
@@ -368,7 +368,7 @@ int suspend_sys_sync_wait(void)
 
 	if (suspend_sys_sync_count != 0) {
 		mod_timer(&suspend_sys_sync_timer, jiffies +
-				SUSPEND_SYS_SYNC_TIMEOUT);
+				msecs_to_jiffies(SUSPEND_SYS_SYNC_TIMEOUT));
 		wait_for_completion(&suspend_sys_sync_comp);
 	}
 	if (suspend_sys_sync_abort) {
