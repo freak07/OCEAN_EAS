@@ -358,7 +358,7 @@ static void suspend_sys_sync_handler(unsigned long arg)
 		complete(&suspend_sys_sync_comp);
 	} else {
 		mod_timer(&suspend_sys_sync_timer, jiffies +
-						msecs_to_jiffies(SUSPEND_SYS_SYNC_TIMEOUT));
+						msecs_to_jiffies(SUSPEND_SYS_SYNC_TIMEOUT)));
 	}
 }
 
@@ -368,7 +368,7 @@ int suspend_sys_sync_wait(void)
 
 	if (suspend_sys_sync_count != 0) {
 		mod_timer(&suspend_sys_sync_timer, jiffies +
-				msecs_to_jiffies(SUSPEND_SYS_SYNC_TIMEOUT));
+				msecs_to_jiffies(SUSPEND_SYS_SYNC_TIMEOUT)));
 		wait_for_completion(&suspend_sys_sync_comp);
 	}
 	if (suspend_sys_sync_abort) {
