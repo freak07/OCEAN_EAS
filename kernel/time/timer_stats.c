@@ -44,7 +44,7 @@
 #include <linux/kallsyms.h>
 
 #include <asm/uaccess.h>
-#define TIMER_STATS_FLAG_DEFERRABLE  0x1
+
 /*
  * This is our basic unit of interest: a timer expiry event identified
  * by the timer, its start/expire functions and the PID of the task that
