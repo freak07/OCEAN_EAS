@@ -983,7 +983,7 @@ static struct clk_rcg2 esc0_clk_src = {
 		.name = "esc0_clk_src",
 		.parent_names = mmcc_parent_names_1,
 		.num_parents = 4,
-		.ops = &clk_rcg2_ops,
+		.ops = &clk_esc_ops,
 		VDD_DIG_FMAX_MAP1(
 			LOWER, 19200000),
 	},
@@ -999,7 +999,7 @@ static struct clk_rcg2 esc1_clk_src = {
 		.name = "esc1_clk_src",
 		.parent_names = mmcc_parent_names_1,
 		.num_parents = 4,
-		.ops = &clk_rcg2_ops,
+		.ops = &clk_esc_ops,
 		VDD_DIG_FMAX_MAP1(
 			LOWER, 19200000),
 	},
